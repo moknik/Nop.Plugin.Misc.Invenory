@@ -23,12 +23,20 @@
                     <i class="fas fa-file-excel"></i> @T("Plugins.Misc.Moknik.Inventory.Action.Export")
                 </a>
                 <span style="color: #ccc;">|</span>
+                @*-- The native file input renders its own "Choose file" button + "no file selected" text in
+                    the BROWSER's locale, which can't be changed from HTML/the admin language. So hide it and
+                    drive it through a styled <label> + filename span we localize ourselves; validation is done
+                    in JS (see the import handler below) so its message also follows the admin language. --*@
                 <form method="post" action="@Url.Action("ImportCounts", "Inventory")" enctype="multipart/form-data"
-                      style="display: inline-flex; align-items: center; gap: 0.4rem; margin: 0;">
+                      class="cr-import-form" style="display: inline-flex; align-items: center; gap: 0.4rem; margin: 0;">
                     @Html.AntiForgeryToken()
                     <input type="hidden" name="sessionId" value="@Model.SessionId" />
-                    <input type="file" name="importFile" accept=".xlsx" required
-                           style="font-size: 0.78rem; max-width: 150px;" />
+                    <input type="file" name="importFile" accept=".xlsx" id="cr-import-input-@Model.SessionId"
+                           class="cr-import-input" style="position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden;" />
+                    <label for="cr-import-input-@Model.SessionId" class="btn btn-sm btn-default mb-0" style="margin: 0;">
+                        <i class="fas fa-folder-open"></i> @T("Plugins.Misc.Moknik.Inventory.ChooseFile")
+                    </label>
+                    <span class="cr-import-name text-muted" style="font-size: 0.78rem; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">@T("Plugins.Misc.Moknik.Inventory.NoFileSelected")</span>
                     <button type="submit" class="btn btn-sm btn-default" title="@T("Plugins.Misc.Moknik.Inventory.ImportCountsHint")">
                         <i class="fas fa-file-import"></i> @T("Plugins.Misc.Moknik.Inventory.ImportCounts")
                     </button>
@@ -271,6 +279,8 @@
         const lblOk = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.OkButton").Text));
         const lblOkTooltip = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.OkTooltip").Text));
         const lblSaveCount = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.SaveCountButton").Text));
+        const msgSelectFile = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.ImportSelectFile").Text));
+        const lblNoFile = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.NoFileSelected").Text));
 
         const cancelForm = root.querySelector('.cr-cancel-form');
         if (cancelForm) {
@@ -283,6 +293,27 @@
         if (finishForm) {
             finishForm.addEventListener('submit', function (e) {
                 if (!confirm(msgFinishConfirm)) e.preventDefault();
+            });
+        }
+
+        // Import-counts form: the native file input is visually hidden (its "Choose file" button text is
+        // browser-localized), so mirror the chosen filename into the label span and validate on submit with
+        // a localized message instead of the browser's native "required" prompt.
+        const importForm = root.querySelector('.cr-import-form');
+        if (importForm) {
+            const importInput = importForm.querySelector('.cr-import-input');
+            const importName = importForm.querySelector('.cr-import-name');
+            if (importInput) {
+                importInput.addEventListener('change', function () {
+                    if (importName) importName.textContent = (importInput.files && importInput.files.length)
+                        ? importInput.files[0].name : lblNoFile;
+                });
+            }
+            importForm.addEventListener('submit', function (e) {
+                if (!importInput || !importInput.files || !importInput.files.length) {
+                    e.preventDefault();
+                    flashStatus(msgSelectFile, true);
+                }
             });
         }
 

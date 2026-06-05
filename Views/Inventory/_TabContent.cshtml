@@ -10,20 +10,22 @@
 <style>
     /* Match the grid's sort icons to the custom session table: ⇅ neutral, ▲ asc, ▼ desc.
        This DataTables version renders sort indicators via span.dt-column-order (:before ▲ / :after ▼),
-       so we collapse that into a single character to mirror the session table's .cr-sort-ind. */
-    #inventory-grid thead th span.dt-column-order,
-    #inventory-grid thead td span.dt-column-order {
+       so we collapse that into a single character to mirror the session table's .cr-sort-ind. The page
+       has scrolling headers (.dt-scroll), so DataTables clones the header into a separate table WITHOUT
+       the #inventory-grid id — hence we scope to the whole tab pane, covering original + cloned header. */
+    #cr-pane-inventory table.dataTable thead th span.dt-column-order,
+    #cr-pane-inventory table.dataTable thead td span.dt-column-order {
         position: static !important;
         width: auto !important;
         height: auto !important;
         margin-left: 4px;
     }
-    #inventory-grid thead th span.dt-column-order:before,
-    #inventory-grid thead td span.dt-column-order:before {
+    #cr-pane-inventory table.dataTable thead th span.dt-column-order:before,
+    #cr-pane-inventory table.dataTable thead td span.dt-column-order:before {
         content: none !important;
     }
-    #inventory-grid thead th span.dt-column-order:after,
-    #inventory-grid thead td span.dt-column-order:after {
+    #cr-pane-inventory table.dataTable thead th span.dt-column-order:after,
+    #cr-pane-inventory table.dataTable thead td span.dt-column-order:after {
         position: static !important;
         display: inline !important;
         top: auto !important;
@@ -34,13 +36,13 @@
         opacity: 0.55 !important;
         font-size: 0.8em !important;
     }
-    #inventory-grid thead th.dt-ordering-asc span.dt-column-order:after,
-    #inventory-grid thead td.dt-ordering-asc span.dt-column-order:after {
+    #cr-pane-inventory table.dataTable thead th.dt-ordering-asc span.dt-column-order:after,
+    #cr-pane-inventory table.dataTable thead td.dt-ordering-asc span.dt-column-order:after {
         content: '▲' !important;
         opacity: 0.8 !important;
     }
-    #inventory-grid thead th.dt-ordering-desc span.dt-column-order:after,
-    #inventory-grid thead td.dt-ordering-desc span.dt-column-order:after {
+    #cr-pane-inventory table.dataTable thead th.dt-ordering-desc span.dt-column-order:after,
+    #cr-pane-inventory table.dataTable thead td.dt-ordering-desc span.dt-column-order:after {
         content: '▼' !important;
         opacity: 0.8 !important;
     }

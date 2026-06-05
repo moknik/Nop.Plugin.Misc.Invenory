@@ -1128,16 +1128,10 @@ public class InventoryService : IInventoryService
             await LabelAsync("Column.Product", "Product"),
             await LabelAsync("Column.Sku", "SKU"),
             await LabelAsync("Column.Ean", "EAN"),
+            await LabelAsync("Column.Price", "Price"),
             await LabelAsync("SnapshotStock", "Snapshot stock"),
-            await LabelAsync("CountedStock", "Counted"),
-            await LabelAsync("Report.Difference", "Difference"),
-            await LabelAsync("StatusFilter", "Status"),
-            await LabelAsync("Column.Price", "Price")
+            await LabelAsync("CountedStock", "Counted")
         };
-
-        var doneLabel = await LabelAsync("StatusDone", "Done");
-        var diffLabel = await LabelAsync("StatusDiff", "Mismatch");
-        var pendingLabel = await LabelAsync("StatusPending", "Not counted");
 
         using var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("Inventory");
@@ -1149,16 +1143,13 @@ public class InventoryService : IInventoryService
         foreach (var row in model.Rows.OrderBy(x => x.ManufacturerName).ThenBy(x => x.ProductName))
         {
             var counted = row.CountedStock ?? 0;
-            var status = !row.IsConfirmed ? pendingLabel : (counted == row.SnapshotStock ? doneLabel : diffLabel);
             ws.Cell(r, 1).Value = row.ManufacturerName ?? string.Empty;
             ws.Cell(r, 2).Value = row.ProductName ?? string.Empty;
             ws.Cell(r, 3).Value = row.Sku ?? string.Empty;
             ws.Cell(r, 4).Value = row.Ean ?? string.Empty;
-            ws.Cell(r, 5).Value = row.SnapshotStock;
-            ws.Cell(r, 6).Value = row.IsConfirmed ? counted : 0;
-            ws.Cell(r, 7).Value = (row.IsConfirmed ? counted : 0) - row.SnapshotStock;
-            ws.Cell(r, 8).Value = status;
-            ws.Cell(r, 9).Value = row.Price;
+            ws.Cell(r, 5).Value = row.Price;
+            ws.Cell(r, 6).Value = row.SnapshotStock;
+            ws.Cell(r, 7).Value = row.IsConfirmed ? counted : 0;
             r++;
         }
         ws.Columns().AdjustToContents();
@@ -1318,7 +1309,8 @@ public class InventoryService : IInventoryService
             throw new InvalidOperationException("Cannot import counts into a completed inventory.");
 
         // Read the uploaded workbook in the column order produced by ExportSession: SKU = col 3,
-        // EAN = col 4, Counted = col 6. The picker fills the Counted column offline and re-uploads.
+        // EAN = col 4, Counted = col 7 (cols 5 = Price, 6 = Snapshot stock). The picker fills the Counted
+        // column offline and re-uploads.
         var parsed = new List<(string Sku, string Ean, int Count)>();
         using (var wb = new XLWorkbook(stream))
         {
@@ -1326,7 +1318,7 @@ public class InventoryService : IInventoryService
             var last = ws.LastRowUsed()?.RowNumber() ?? 1;
             for (var r = 2; r <= last; r++)
             {
-                if (!ws.Cell(r, 6).TryGetValue<double>(out var d))
+                if (!ws.Cell(r, 7).TryGetValue<double>(out var d))
                     continue;
                 var count = (int)Math.Round(d);
                 if (count < 0)
