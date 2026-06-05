@@ -1,0 +1,182 @@
+@model InventoryPageModel
+
+@*-- History of completed (locked) inventories. Each one can be re-printed as a report, deleted, and —
+    once — have its stock differences applied to the real W1 warehouse (writing stock-history movements). --*@
+
+@if (!Model.CompletedSessions.Any())
+{
+    <div class="alert alert-info mb-0">@T("Plugins.Misc.Moknik.Inventory.Completed.Empty")</div>
+}
+else
+{
+    @*-- Client-side history filter (warehouse + completed-date range) with live totals. --*@
+    <div class="cr-completed-filter d-flex align-items-end mb-2" style="gap: 0.5rem; flex-wrap: wrap;">
+        <div class="form-group mb-0">
+            <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.Filter.Warehouse"):</label>
+            <select class="form-control form-control-sm cr-cf-warehouse" style="min-width: 160px;">
+                <option value="">@T("Plugins.Misc.Moknik.Inventory.Filter.Any")</option>
+                @foreach (var w in Model.InventoryWarehouses)
+                {
+                    <option value="@w.Id">@w.Name</option>
+                }
+                <option value="0">@T("Plugins.Misc.Moknik.Inventory.Warehouse.None")</option>
+            </select>
+        </div>
+        <div class="form-group mb-0">
+            <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.Filter.From"):</label>
+            <input type="date" class="form-control form-control-sm cr-cf-from" />
+        </div>
+        <div class="form-group mb-0">
+            <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.Filter.To"):</label>
+            <input type="date" class="form-control form-control-sm cr-cf-to" />
+        </div>
+        <button type="button" class="btn btn-sm btn-default cr-cf-reset">@T("Plugins.Misc.Moknik.Inventory.Filter.Reset")</button>
+        <div class="cr-cf-totals ml-2" style="font-size: 0.85rem; color: #555;"></div>
+    </div>
+
+    <div class="cr-tab-scroll">
+        <table class="table table-sm table-bordered cr-table cr-table-completed">
+            <thead class="thead-light">
+                <tr>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.StartedAt")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Completed.CompletedAt")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Filter.Warehouse")</th>
+                    <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.Completed.Items")</th>
+                    <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.Completed.Mismatches")</th>
+                    <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.Completed.Pending")</th>
+                    <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.Completed.Value")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Completed.StockStatus")</th>
+                    <th style="width: 1px;">@T("Plugins.Misc.Moknik.Inventory.Actions")</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var c in Model.CompletedSessions)
+                {
+                    <tr data-warehouse="@c.WarehouseId"
+                        data-completed="@(c.CompletedOnUtc?.ToString("yyyy-MM-dd") ?? string.Empty)"
+                        data-value="@c.DiscrepancyValue.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+                        <td>@c.StartedOnUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>@(c.CompletedOnUtc?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                        <td>@(string.IsNullOrEmpty(c.WarehouseName) ? T("Plugins.Misc.Moknik.Inventory.Warehouse.None").Text : c.WarehouseName)</td>
+                        <td class="text-right">@c.ItemCount</td>
+                        <td class="text-right">
+                            @if (c.MismatchCount > 0)
+                            {
+                                <a href="@Url.Action("Report", "Inventory", new { sessionId = c.SessionId })" target="_blank">
+                                    <strong>@c.MismatchCount</strong>
+                                </a>
+                            }
+                            else
+                            {
+                                <text>0</text>
+                            }
+                        </td>
+                        <td class="text-right">@c.PendingCount</td>
+                        <td class="text-right">@c.DiscrepancyValue.ToString("0.00")</td>
+                        <td>
+                            @if (c.StockApplied)
+                            {
+                                <span class="badge badge-success">
+                                    <i class="fas fa-check"></i>
+                                    @string.Format(T("Plugins.Misc.Moknik.Inventory.Completed.StockApplied").Text,
+                                        c.StockAppliedOnUtc?.ToString("yyyy-MM-dd HH:mm") ?? string.Empty)
+                                </span>
+                            }
+                            else if (c.MismatchCount > 0)
+                            {
+                                <span class="badge badge-warning">@T("Plugins.Misc.Moknik.Inventory.Completed.StockPending")</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">@T("Plugins.Misc.Moknik.Inventory.Completed.StockNone")</span>
+                            }
+                        </td>
+                        <td class="text-right" style="white-space: nowrap;">
+                            @if (!c.StockApplied && c.MismatchCount > 0)
+                            {
+                                <form class="cr-apply-form" method="post" action="@Url.Action("ApplyStock", "Inventory")" style="display:inline;">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="sessionId" value="@c.SessionId" />
+                                    <button type="submit" class="btn btn-xs btn-success">
+                                        <i class="fas fa-warehouse"></i> @T("Plugins.Misc.Moknik.Inventory.Completed.ApplyStockButton")
+                                    </button>
+                                </form>
+                            }
+                            <a class="btn btn-xs btn-default" target="_blank"
+                               href="@Url.Action("Report", "Inventory", new { sessionId = c.SessionId })">
+                                <i class="fas fa-print"></i> @T("Plugins.Misc.Moknik.Inventory.Action.Print")
+                            </a>
+                            <a class="btn btn-xs btn-default"
+                               href="@Url.Action("ExportSession", "Inventory", new { sessionId = c.SessionId })">
+                                <i class="fas fa-file-excel"></i> @T("Plugins.Misc.Moknik.Inventory.Action.Export")
+                            </a>
+                            <a class="btn btn-xs btn-default" target="_blank"
+                               href="@Url.Action("ReportPdf", "Inventory", new { sessionId = c.SessionId })">
+                                <i class="fas fa-file-pdf"></i> PDF
+                            </a>
+                            <form class="cr-delete-form" method="post" action="@Url.Action("Cancel", "Inventory")" style="display:inline;">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="sessionId" value="@c.SessionId" />
+                                <button type="submit" class="btn btn-xs btn-danger">
+                                    <i class="fas fa-times"></i> @T("Plugins.Misc.Moknik.Inventory.Completed.DeleteButton")
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @*-- asp-location="None": emit verbatim past the footer-bundle minifier (which can break handlers). --*@
+    <script asp-location="None">
+        (function () {
+            var applyConfirm = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.Completed.ApplyStockConfirm").Text));
+            var deleteConfirm = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.Completed.DeleteConfirm").Text));
+            var lblShown = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.Completed.Shown").Text));
+            var lblValue = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.Completed.Value").Text));
+            function wire(scope, selector, msg) {
+                scope.querySelectorAll(selector).forEach(function (form) {
+                    form.addEventListener('submit', function (e) { if (!confirm(msg)) e.preventDefault(); });
+                });
+            }
+            function init() {
+                var scope = document.getElementById('cr-pane-completed');
+                if (!scope) return;
+                wire(scope, '.cr-apply-form', applyConfirm);
+                wire(scope, '.cr-delete-form', deleteConfirm);
+
+                var wh = scope.querySelector('.cr-cf-warehouse');
+                var from = scope.querySelector('.cr-cf-from');
+                var to = scope.querySelector('.cr-cf-to');
+                var reset = scope.querySelector('.cr-cf-reset');
+                var totals = scope.querySelector('.cr-cf-totals');
+                var rows = Array.prototype.slice.call(scope.querySelectorAll('.cr-table-completed tbody tr'));
+                function apply() {
+                    var w = wh ? wh.value : '';
+                    var f = from ? from.value : '';
+                    var t = to ? to.value : '';
+                    var shown = 0, sum = 0;
+                    rows.forEach(function (r) {
+                        var rw = r.getAttribute('data-warehouse') || '';
+                        var rc = r.getAttribute('data-completed') || '';
+                        var rv = parseFloat(r.getAttribute('data-value') || '0') || 0;
+                        var ok = true;
+                        if (w !== '' && rw !== w) ok = false;
+                        if (f && rc && rc < f) ok = false;
+                        if (t && rc && rc > t) ok = false;
+                        r.style.display = ok ? '' : 'none';
+                        if (ok) { shown++; sum += rv; }
+                    });
+                    if (totals) totals.textContent = lblShown + ': ' + shown + ' · ' + lblValue + ': ' + sum.toFixed(2);
+                }
+                if (wh) wh.addEventListener('change', apply);
+                if (from) from.addEventListener('change', apply);
+                if (to) to.addEventListener('change', apply);
+                if (reset) reset.addEventListener('click', function () { if (wh) wh.value = ''; if (from) from.value = ''; if (to) to.value = ''; apply(); });
+                apply();
+            }
+            if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+        })();
+    </script>
+}

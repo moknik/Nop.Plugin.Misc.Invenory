@@ -1,0 +1,736 @@
+@model InventorySessionModel
+
+@*-- Everything in this partial is scoped to this root element, so several session tabs can coexist
+    on the page without their inputs/tables/handlers colliding. --*@
+<div class="cr-session-root" id="cr-session-root-@Model.SessionId" data-session="@Model.SessionId">
+
+    @*-- Antiforgery token harvested by the inline JS (scoped to this session). --*@
+    <form class="cr-antiforgery" style="display:none;">@Html.AntiForgeryToken()</form>
+
+    @*-- Top header: scan barcode + export/import on the left; finish/delete + session meta on the right. --*@
+    <div class="cr-scanner-bar mb-2" style="display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; justify-content: space-between;">
+        <div style="display: flex; align-items: flex-end; gap: 0.5rem; flex-wrap: wrap;">
+            <div class="form-group mb-0">
+                <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.ScanEan"):</label>
+                <input type="text" class="form-control form-control-sm cr-scan-ean"
+                       placeholder="@T("Plugins.Misc.Moknik.Inventory.ScanEanPlaceholder")"
+                       autocomplete="off" autocapitalize="off" spellcheck="false"
+                       style="min-width: 230px;" />
+            </div>
+            @*-- Export + offline-counting import grouped in one bordered section. --*@
+            <div style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.5rem; border: 1px solid #e0e0e0; border-radius: 4px; background: #fafafa;">
+                <a class="btn btn-sm btn-default" href="@Url.Action("ExportSession", "Inventory", new { sessionId = Model.SessionId })">
+                    <i class="fas fa-file-excel"></i> @T("Plugins.Misc.Moknik.Inventory.Action.Export")
+                </a>
+                <span style="color: #ccc;">|</span>
+                <form method="post" action="@Url.Action("ImportCounts", "Inventory")" enctype="multipart/form-data"
+                      style="display: inline-flex; align-items: center; gap: 0.4rem; margin: 0;">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="sessionId" value="@Model.SessionId" />
+                    <input type="file" name="importFile" accept=".xlsx" required
+                           style="font-size: 0.78rem; max-width: 150px;" />
+                    <button type="submit" class="btn btn-sm btn-default" title="@T("Plugins.Misc.Moknik.Inventory.ImportCountsHint")">
+                        <i class="fas fa-file-import"></i> @T("Plugins.Misc.Moknik.Inventory.ImportCounts")
+                    </button>
+                </form>
+            </div>
+            <div class="cr-scan-status" role="status" aria-live="polite" style="font-size: 0.85rem; min-height: 1.2rem; align-self: center;"></div>
+        </div>
+        <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem;">
+            <div>
+                <form class="cr-finish-form" method="post" action="@Url.Action("Complete", "Inventory")" style="display: inline; margin: 0;">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="sessionId" value="@Model.SessionId" />
+                    <button type="submit" class="btn btn-sm btn-primary">
+                        <i class="fas fa-lock"></i> @T("Plugins.Misc.Moknik.Inventory.FinishButton")
+                    </button>
+                </form>
+                <form class="cr-cancel-form" method="post" action="@Url.Action("Cancel", "Inventory")" style="display: inline; margin: 0;">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="sessionId" value="@Model.SessionId" />
+                    <button type="submit" class="btn btn-sm btn-danger">
+                        <i class="fas fa-times"></i> @T("Plugins.Misc.Moknik.Inventory.CancelButton")
+                    </button>
+                </form>
+            </div>
+            <div style="font-size: 0.85rem; color: #555;">
+                <span class="mr-3">
+                    <i class="fas fa-warehouse"></i>
+                    @(string.IsNullOrEmpty(Model.WarehouseName) ? T("Plugins.Misc.Moknik.Inventory.Warehouse.None").Text : Model.WarehouseName)
+                </span>
+                <span>@T("Plugins.Misc.Moknik.Inventory.StartedAt"): @Model.StartedOnUtc.ToString("yyyy-MM-dd HH:mm")</span>
+            </div>
+        </div>
+    </div>
+
+    @*-- Add product: a product found physically on the shelf that wasn't part of the snapshot
+        (not stocked in the system). It's added with snapshot 0 + the entered count, so it shows up
+        as a mismatch ("Rozdíl"). --*@
+    <div class="cr-add-bar mb-2" style="display: flex; align-items: end; gap: 0.5rem; flex-wrap: wrap;">
+        <div class="form-group mb-0">
+            <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.AddProduct"):</label>
+            <input type="text" class="form-control form-control-sm cr-add-query"
+                   placeholder="@T("Plugins.Misc.Moknik.Inventory.AddProductPlaceholder")"
+                   autocomplete="off" autocapitalize="off" spellcheck="false"
+                   style="min-width: 220px;" />
+        </div>
+        <div class="form-group mb-0">
+            <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.AddProductCount"):</label>
+            <input type="number" min="1" value="1" class="form-control form-control-sm cr-add-count"
+                   style="width: 80px;" />
+        </div>
+        <div>
+            <button type="button" class="btn btn-sm btn-primary cr-add-btn">
+                <i class="fas fa-plus"></i> @T("Plugins.Misc.Moknik.Inventory.AddProductButton")
+            </button>
+        </div>
+        <div class="cr-add-status" role="status" aria-live="polite" style="font-size: 0.85rem; min-height: 1.2rem;"></div>
+        <div style="flex-basis: 100%; font-size: 0.8rem; color: #777;">
+            @T("Plugins.Misc.Moknik.Inventory.AddProductHint")
+        </div>
+    </div>
+
+    @*-- Who carried out the inventory — saved via AJAX; printed on the report's "counted by" line. --*@
+    <div class="form-group mb-2">
+        <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.CountedBy"):</label>
+        <div style="display: flex; align-items: flex-start; gap: 0.5rem; flex-wrap: wrap;">
+            <input type="text" class="form-control form-control-sm cr-countedby"
+                   placeholder="@T("Plugins.Misc.Moknik.Inventory.CountedByPlaceholder")"
+                   autocomplete="off"
+                   style="min-width: 320px; flex: 1 1 320px;" value="@Model.CountedBy" />
+            <div>
+                <button type="button" class="btn btn-sm btn-default cr-countedby-save">
+                    <i class="fas fa-save"></i> @T("Plugins.Misc.Moknik.Inventory.NotesSave")
+                </button>
+                <span class="cr-countedby-status ml-1" style="font-size: 0.85rem;"></span>
+            </div>
+        </div>
+    </div>
+
+    @*-- Notes for this inventory — saved via AJAX so the active tab is preserved. --*@
+    <div class="form-group mb-2">
+        <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.Notes"):</label>
+        <div style="display: flex; align-items: flex-start; gap: 0.5rem; flex-wrap: wrap;">
+            <textarea class="form-control form-control-sm cr-notes" rows="2"
+                      placeholder="@T("Plugins.Misc.Moknik.Inventory.NotesPlaceholder")"
+                      style="min-width: 320px; flex: 1 1 320px;">@Model.Notes</textarea>
+            <div>
+                <button type="button" class="btn btn-sm btn-default cr-notes-save">
+                    <i class="fas fa-save"></i> @T("Plugins.Misc.Moknik.Inventory.NotesSave")
+                </button>
+                <span class="cr-notes-status ml-1" style="font-size: 0.85rem;"></span>
+            </div>
+        </div>
+    </div>
+
+    @*-- The session-table filter is fully owned by the JS in this partial (it combines text + status). --*@
+    <div class="d-flex justify-content-between align-items-end mb-2" style="gap: 0.5rem; flex-wrap: wrap;">
+        <div class="form-group mb-0" style="flex: 1 1 260px;">
+            <label class="mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.Filter.Search"):</label>
+            <input type="text" class="form-control form-control-sm cr-session-search"
+                   placeholder="@T("Plugins.Misc.Moknik.Inventory.Filter.SearchPlaceholder")"
+                   style="min-width: 260px;" />
+        </div>
+        <div class="form-group mb-0">
+            <label class="d-block mb-0" style="font-size: 0.85rem;">@T("Plugins.Misc.Moknik.Inventory.StatusFilter"):</label>
+            <div class="btn-group" role="group" aria-label="status filter">
+                <button type="button" class="btn btn-sm btn-outline-success cr-status-btn active"
+                        data-status="match">@T("Plugins.Misc.Moknik.Inventory.StatusDone")</button>
+                <button type="button" class="btn btn-sm btn-outline-danger cr-status-btn active"
+                        data-status="diff">@T("Plugins.Misc.Moknik.Inventory.StatusDiff")</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary cr-status-btn active"
+                        data-status="pending">@T("Plugins.Misc.Moknik.Inventory.StatusPending")</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="cr-tab-scroll">
+            <table class="table table-sm table-bordered cr-table cr-table-session">
+                <thead class="thead-light">
+                    <tr>
+                        <th>@T("Plugins.Misc.Moknik.Inventory.Column.Manufacturer")</th>
+                        <th>@T("Plugins.Misc.Moknik.Inventory.Column.Product")</th>
+                        <th>@T("Plugins.Misc.Moknik.Inventory.Column.Sku")</th>
+                        <th>@T("Plugins.Misc.Moknik.Inventory.Column.Ean")</th>
+                        <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.SnapshotStock")</th>
+                        <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.Column.Reserved")</th>
+                        <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.CountedStock")</th>
+                        <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.Report.Difference")</th>
+                        <th style="width: 1px;" data-nosort>@T("Plugins.Misc.Moknik.Inventory.Actions")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (!Model.Rows.Any())
+                    {
+                        <tr class="cr-empty-row">
+                            <td colspan="9" class="text-center text-muted">@T("Plugins.Misc.Moknik.Inventory.SessionEmpty")</td>
+                        </tr>
+                    }
+                    @foreach (var row in Model.Rows)
+                    {
+                        var status = !row.IsConfirmed
+                            ? "pending"
+                            : (row.CountedStock == row.SnapshotStock ? "match" : "diff");
+                        var rowClass = status switch
+                        {
+                            "match" => "cr-row-match",
+                            "diff" => "cr-row-diff",
+                            _ => null
+                        };
+                        if (row.IsDuplicateEan)
+                        {
+                            rowClass = $"{rowClass} cr-ean-duplicate".Trim();
+                        }
+                        <tr class="@rowClass"
+                            data-search="@($"{row.Sku} {row.Ean} {row.ProductName} {row.VariantInfo}".ToLowerInvariant())"
+                            data-item="@row.ItemId"
+                            data-product="@row.ProductId"
+                            data-status="@status"
+                            data-duplicate="@(row.IsDuplicateEan ? "1" : "0")"
+                            data-snapshot="@row.SnapshotStock">
+                            <td>@row.ManufacturerName</td>
+                            <td>
+                                <a href="@row.ProductEditUrl" target="_blank">@row.ProductName</a>
+                                @if (!string.IsNullOrEmpty(row.VariantInfo))
+                                {
+                                    <span class="badge badge-info ml-1" title="@T("Plugins.Misc.Moknik.Inventory.Variant")">@row.VariantInfo</span>
+                                }
+                            </td>
+                            <td>@row.Sku</td>
+                            <td>
+                                @row.Ean
+                                @if (row.IsDuplicateEan)
+                                {
+                                    <span class="cr-ean-dup-badge" title="@T("Plugins.Misc.Moknik.Inventory.DuplicateEanTitle")">@T("Plugins.Misc.Moknik.Inventory.DuplicateEanBadge")</span>
+                                }
+                            </td>
+                            <td class="text-right"><strong>@row.SnapshotStock</strong></td>
+                            <td class="text-right">@row.SnapshotReserved</td>
+                            <td class="text-right cr-cell-counted">@(row.CountedStock?.ToString() ?? "—")</td>
+                            <td class="text-right cr-cell-diff">
+                                @if (row.CountedStock.HasValue)
+                                {
+                                    var diff = row.CountedStock.Value - row.SnapshotStock;
+                                    <span class="@(diff < 0 ? "cr-diff-neg" : (diff > 0 ? "cr-diff-pos" : ""))">@(diff > 0 ? "+" : "")@diff</span>
+                                }
+                                else
+                                {
+                                    <text>—</text>
+                                }
+                            </td>
+                            <td class="text-right" style="white-space: nowrap;">
+                                <button class="btn btn-xs btn-success cr-btn-ok" data-item="@row.ItemId"
+                                        title="@T("Plugins.Misc.Moknik.Inventory.OkTooltip")">
+                                    <i class="fas fa-check"></i> @T("Plugins.Misc.Moknik.Inventory.OkButton")
+                                </button>
+                                <input type="number" min="0" class="form-control form-control-sm cr-count-input"
+                                       style="width: 70px; display: inline-block;" placeholder="n" />
+                                <button class="btn btn-xs btn-default cr-btn-save-count" data-item="@row.ItemId">
+                                    @T("Plugins.Misc.Moknik.Inventory.SaveCountButton")
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+    </div>
+</div>
+
+<script>
+    // OK / save-count / scan-EAN / notes handlers for ONE session. Everything is resolved relative to
+    // this session's root element so multiple session tabs on the page stay independent. AJAX so the
+    // table doesn't reflow on every action; rows are patched in place.
+    (function () {
+        const sessionId = @Model.SessionId;
+
+        function init() {
+          try {
+        const root = document.getElementById('cr-session-root-' + sessionId);
+        if (!root) return;
+
+        const tokenEl = root.querySelector('.cr-antiforgery input[name="__RequestVerificationToken"]');
+        const okUrl = '@Url.Action("Confirm", "Inventory")';
+        const setUrl = '@Url.Action("SetCount", "Inventory")';
+        const scanUrl = '@Url.Action("Scan", "Inventory")';
+        const notesUrl = '@Url.Action("SaveNotes", "Inventory")';
+        const countedByUrl = '@Url.Action("SaveCountedBy", "Inventory")';
+        const addUrl = '@Url.Action("AddProduct", "Inventory")';
+        const scanInput = root.querySelector('.cr-scan-ean');
+        const scanStatus = root.querySelector('.cr-scan-status');
+        // Razor's default output encodes Czech diacritics; JSON-serialize keeps the strings clean
+        // when injected as JS string literals.
+        const msgNotFound = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.ScanNotFound").Text));
+        const msgScanned = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.ScanOk").Text));
+        const msgDuplicate = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.ScanDuplicate").Text));
+        const msgCancelConfirm = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.CancelConfirm").Text));
+        const msgFinishConfirm = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.FinishConfirm").Text));
+        const msgNotesSaved = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.NotesSaved").Text));
+        const msgAddNotFound = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.AddProductNotFound").Text));
+        const msgAddAdded = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.AddProductAdded").Text));
+        // Labels for rows built client-side when a product is added (no server round-trip to re-render).
+        const lblOk = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.OkButton").Text));
+        const lblOkTooltip = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.OkTooltip").Text));
+        const lblSaveCount = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(T("Plugins.Misc.Moknik.Inventory.SaveCountButton").Text));
+
+        const cancelForm = root.querySelector('.cr-cancel-form');
+        if (cancelForm) {
+            cancelForm.addEventListener('submit', function (e) {
+                if (!confirm(msgCancelConfirm)) e.preventDefault();
+            });
+        }
+
+        const finishForm = root.querySelector('.cr-finish-form');
+        if (finishForm) {
+            finishForm.addEventListener('submit', function (e) {
+                if (!confirm(msgFinishConfirm)) e.preventDefault();
+            });
+        }
+
+        function post(url, fd) {
+            if (tokenEl) fd.append('__RequestVerificationToken', tokenEl.value);
+            return fetch(url, { method: 'POST', body: fd, credentials: 'same-origin' })
+                .then(function (r) {
+                    return r.text().then(function (text) {
+                        // The endpoints return JSON; if we got something else (e.g. a 400 antiforgery
+                        // page or an auth redirect) surface the status + a snippet so the cause is visible
+                        // instead of a cryptic "Unexpected token" JSON-parse error. (No regex literal here:
+                        // it goes through the inline-JS minifier and regex literals are a known hazard.)
+                        try {
+                            return JSON.parse(text);
+                        } catch (e) {
+                            var snippet = (text || '').split('\n').join(' ').substring(0, 300);
+                            return { success: false, error: 'HTTP ' + r.status + ' ' + r.statusText + ': ' + snippet };
+                        }
+                    });
+                });
+        }
+
+        // Patch the row after any count-changing action: write the counted cell, recompute the
+        // match/diff status from snapshot vs counted, swap row classes, refresh data-status, and
+        // re-apply the active filter so a row that just moved into a hidden status disappears.
+        // Render the snapshot→counted difference cell: red "-N" when stock is missing, green "+N" when
+        // surplus, plain "0"/"—" otherwise. Class goes on the cell so it mirrors the server-rendered span.
+        function renderDiff(cell, counted, snapshot) {
+            if (!cell) return;
+            if (counted === null || counted === undefined || counted === '') {
+                cell.textContent = '—';
+                cell.className = 'text-right cr-cell-diff';
+                return;
+            }
+            const diff = (parseInt(counted, 10) || 0) - (parseInt(snapshot, 10) || 0);
+            cell.textContent = (diff > 0 ? '+' : '') + diff;
+            cell.className = 'text-right cr-cell-diff' + (diff < 0 ? ' cr-diff-neg' : (diff > 0 ? ' cr-diff-pos' : ''));
+        }
+
+        function patchRow(row, counted) {
+            const cell = row.querySelector('.cr-cell-counted');
+            if (cell) cell.textContent = String(counted);
+            const snapshot = parseInt(row.dataset.snapshot || '0', 10);
+            renderDiff(row.querySelector('.cr-cell-diff'), counted, snapshot);
+            const matches = parseInt(counted, 10) === snapshot;
+            row.classList.remove('cr-row-match', 'cr-row-diff', 'cr-row-confirmed');
+            row.classList.add(matches ? 'cr-row-match' : 'cr-row-diff');
+            row.dataset.status = matches ? 'match' : 'diff';
+            applyFilter();
+        }
+
+        const searchInput = root.querySelector('.cr-session-search');
+        const statusButtons = Array.from(root.querySelectorAll('.cr-status-btn'));
+        function activeStatuses() {
+            return new Set(statusButtons.filter(b => b.classList.contains('active')).map(b => b.dataset.status));
+        }
+        function applyFilter() {
+            const needle = (searchInput?.value || '').trim().toLowerCase();
+            const allowed = activeStatuses();
+            root.querySelectorAll('.cr-table-session tbody tr').forEach(tr => {
+                const textOk = !needle || (tr.dataset.search || '').indexOf(needle) >= 0;
+                const statusOk = allowed.has(tr.dataset.status || 'pending');
+                tr.style.display = textOk && statusOk ? '' : 'none';
+            });
+        }
+        if (searchInput) searchInput.addEventListener('input', applyFilter);
+        statusButtons.forEach(btn => btn.addEventListener('click', function () {
+            btn.classList.toggle('active');
+            applyFilter();
+        }));
+
+        function flashStatus(msg, isError) {
+            if (!scanStatus) return;
+            scanStatus.textContent = msg;
+            scanStatus.style.color = isError ? '#c0392b' : '#2e7d32';
+        }
+
+        // Warning sound for an unknown / unscannable EAN — a car-horn ("klakson") honk synthesised via
+        // Web Audio so no asset is needed. The scan is triggered by an Enter key (a user gesture), so the
+        // AudioContext is allowed to start. Two simultaneous brassy tones (A4 + F4) give the typical horn
+        // dyad; a single sustained honk is distinct from the silent success case.
+        let audioCtx = null;
+        function playErrorBeep() {
+            try {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (!AC) return;
+                if (!audioCtx) audioCtx = new AC();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                const now = audioCtx.currentTime;
+                const dur = 0.6;
+                // Shared envelope so the two tones don't sum to a clipped blast.
+                const master = audioCtx.createGain();
+                master.gain.setValueAtTime(0.0001, now);
+                master.gain.exponentialRampToValueAtTime(0.28, now + 0.02);
+                master.gain.setValueAtTime(0.28, now + dur - 0.07);
+                master.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+                master.connect(audioCtx.destination);
+                [440, 349.2].forEach(function (freq) {
+                    const osc = audioCtx.createOscillator();
+                    osc.type = 'sawtooth';
+                    osc.frequency.value = freq;
+                    osc.connect(master);
+                    osc.start(now);
+                    osc.stop(now + dur);
+                });
+            } catch (e) {
+                // Audio is a nice-to-have; never let it break scanning.
+            }
+        }
+
+        function focusScanner() {
+            if (scanInput && document.body.contains(scanInput)) {
+                scanInput.focus();
+                scanInput.select();
+            }
+        }
+
+        function processScan(ean) {
+            const value = (ean || '').trim();
+            if (!value) {
+                focusScanner();
+                return;
+            }
+            const fd = new FormData();
+            fd.append('sessionId', sessionId);
+            fd.append('ean', value);
+            post(scanUrl, fd).then(res => {
+                if (res && res.success) {
+                    const row = root.querySelector('.cr-table-session tr[data-item="' + res.itemId + '"]');
+                    if (row) {
+                        patchRow(row, String(res.count));
+                        // Briefly highlight the row so the picker sees which one was incremented
+                        // even when scanning quickly down a long list.
+                        row.style.transition = 'background-color 0.4s ease';
+                        const prev = row.style.backgroundColor;
+                        row.style.backgroundColor = '#a3e3b4';
+                        setTimeout(() => { row.style.backgroundColor = prev; }, 400);
+                    }
+                    flashStatus(msgScanned.replace('{0}', value).replace('{1}', res.count), false);
+                } else if (res && res.duplicate) {
+                    // EAN shared by several products — don't increment anything, just warn (with the alarm).
+                    flashStatus(msgDuplicate.replace('{0}', value), true);
+                    playErrorBeep();
+                } else {
+                    flashStatus(msgNotFound.replace('{0}', value) + ((res && res.error) ? ' (' + res.error + ')' : ''), true);
+                    playErrorBeep();
+                }
+            }).catch(err => { flashStatus((err && err.message) || String(err), true); playErrorBeep(); })
+              .finally(() => {
+                  if (scanInput) scanInput.value = '';
+                  focusScanner();
+              });
+        }
+
+        if (scanInput) {
+            scanInput.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    processScan(scanInput.value);
+                }
+            });
+        }
+
+        // Auto-focus when this session's tab becomes active (initial load if it's already active,
+        // and on Bootstrap's shown event when switched to).
+        function maybeFocusOnLoad() {
+            const pane = document.getElementById('cr-pane-session-' + sessionId);
+            if (pane && pane.classList.contains('active')) focusScanner();
+        }
+        document.addEventListener('DOMContentLoaded', maybeFocusOnLoad);
+        if (document.readyState !== 'loading') maybeFocusOnLoad();
+
+        const sessionTabLink = document.getElementById('cr-tab-session-' + sessionId);
+        if (sessionTabLink && window.jQuery) {
+            window.jQuery(sessionTabLink).on('shown.bs.tab', focusScanner);
+        }
+
+        // Notes save (AJAX) — keeps the active tab instead of reloading the whole page.
+        const notesInput = root.querySelector('.cr-notes');
+        const notesSaveBtn = root.querySelector('.cr-notes-save');
+        const notesStatus = root.querySelector('.cr-notes-status');
+        if (notesSaveBtn) {
+            notesSaveBtn.addEventListener('click', function () {
+                const fd = new FormData();
+                fd.append('sessionId', sessionId);
+                fd.append('notes', notesInput ? notesInput.value : '');
+                if (notesStatus) { notesStatus.style.color = '#555'; notesStatus.textContent = '…'; }
+                post(notesUrl, fd).then(res => {
+                    if (res && res.success) {
+                        if (notesStatus) { notesStatus.style.color = '#2e7d32'; notesStatus.textContent = msgNotesSaved; }
+                    } else {
+                        if (notesStatus) { notesStatus.style.color = '#c0392b'; notesStatus.textContent = (res && res.error) || 'failed'; }
+                    }
+                }).catch(err => {
+                    if (notesStatus) { notesStatus.style.color = '#c0392b'; notesStatus.textContent = (err && err.message) || String(err); }
+                });
+            });
+        }
+
+        // Counted-by save (AJAX) — mirrors the notes save; keeps the active tab.
+        const countedByInput = root.querySelector('.cr-countedby');
+        const countedBySaveBtn = root.querySelector('.cr-countedby-save');
+        const countedByStatus = root.querySelector('.cr-countedby-status');
+        if (countedBySaveBtn) {
+            countedBySaveBtn.addEventListener('click', function () {
+                const fd = new FormData();
+                fd.append('sessionId', sessionId);
+                fd.append('countedBy', countedByInput ? countedByInput.value : '');
+                if (countedByStatus) { countedByStatus.style.color = '#555'; countedByStatus.textContent = '…'; }
+                post(countedByUrl, fd).then(res => {
+                    if (res && res.success) {
+                        if (countedByStatus) { countedByStatus.style.color = '#2e7d32'; countedByStatus.textContent = msgNotesSaved; }
+                    } else {
+                        if (countedByStatus) { countedByStatus.style.color = '#c0392b'; countedByStatus.textContent = (res && res.error) || 'failed'; }
+                    }
+                }).catch(err => {
+                    if (countedByStatus) { countedByStatus.style.color = '#c0392b'; countedByStatus.textContent = (err && err.message) || String(err); }
+                });
+            });
+        }
+
+        // Add-product (AJAX) — a product found on the shelf but missing from the snapshot. Lands as a
+        // mismatch (snapshot 0). The row is built client-side and appended; the click delegation below
+        // (event-delegated on root) then handles its OK / save-count buttons for free.
+        const addQuery = root.querySelector('.cr-add-query');
+        const addCount = root.querySelector('.cr-add-count');
+        const addBtn = root.querySelector('.cr-add-btn');
+        const addStatus = root.querySelector('.cr-add-status');
+
+        function flashAdd(msg, isError) {
+            if (!addStatus) return;
+            addStatus.textContent = msg;
+            addStatus.style.color = isError ? '#c0392b' : '#2e7d32';
+        }
+
+        // Build a session row matching the server-rendered template, via DOM API so the product name
+        // is never interpolated into HTML.
+        function buildSessionRow(res) {
+            const tr = document.createElement('tr');
+            tr.dataset.item = res.itemId;
+            tr.dataset.product = res.productId;
+            tr.dataset.snapshot = res.snapshotStock;
+            tr.dataset.search = ((res.sku || '') + ' ' + (res.ean || '') + ' ' + (res.productName || '') + ' ' + (res.variantInfo || '')).toLowerCase();
+
+            const tdMfr = document.createElement('td');
+            tdMfr.textContent = res.manufacturerName || '';
+            const tdName = document.createElement('td');
+            const a = document.createElement('a');
+            a.href = res.productEditUrl; a.target = '_blank'; a.textContent = res.productName || '';
+            tdName.appendChild(a);
+            if (res.variantInfo) {
+                const vb = document.createElement('span');
+                vb.className = 'badge badge-info ml-1';
+                vb.textContent = res.variantInfo;
+                tdName.appendChild(document.createTextNode(' '));
+                tdName.appendChild(vb);
+            }
+            const tdSku = document.createElement('td'); tdSku.textContent = res.sku || '';
+            const tdEan = document.createElement('td'); tdEan.textContent = res.ean || '';
+            const tdSnap = document.createElement('td'); tdSnap.className = 'text-right';
+            const strong = document.createElement('strong'); strong.textContent = String(res.snapshotStock); tdSnap.appendChild(strong);
+            const tdRes = document.createElement('td'); tdRes.className = 'text-right'; tdRes.textContent = String(res.snapshotReserved);
+            const tdCounted = document.createElement('td'); tdCounted.className = 'text-right cr-cell-counted'; tdCounted.textContent = '—';
+            const tdDiff = document.createElement('td'); tdDiff.className = 'text-right cr-cell-diff'; tdDiff.textContent = '—';
+
+            const tdActions = document.createElement('td');
+            tdActions.className = 'text-right'; tdActions.style.whiteSpace = 'nowrap';
+            const okBtn = document.createElement('button');
+            okBtn.type = 'button';
+            okBtn.className = 'btn btn-xs btn-success cr-btn-ok'; okBtn.dataset.item = res.itemId; okBtn.title = lblOkTooltip;
+            const okIcon = document.createElement('i'); okIcon.className = 'fas fa-check';
+            okBtn.appendChild(okIcon); okBtn.appendChild(document.createTextNode(' ' + lblOk));
+            const countInput = document.createElement('input');
+            countInput.type = 'number'; countInput.min = '0'; countInput.className = 'form-control form-control-sm cr-count-input';
+            countInput.style.width = '70px'; countInput.style.display = 'inline-block'; countInput.placeholder = 'n';
+            const saveBtn = document.createElement('button');
+            saveBtn.type = 'button';
+            saveBtn.className = 'btn btn-xs btn-default cr-btn-save-count'; saveBtn.dataset.item = res.itemId; saveBtn.textContent = lblSaveCount;
+            tdActions.appendChild(okBtn); tdActions.appendChild(document.createTextNode(' '));
+            tdActions.appendChild(countInput); tdActions.appendChild(document.createTextNode(' '));
+            tdActions.appendChild(saveBtn);
+
+            tr.appendChild(tdMfr); tr.appendChild(tdName); tr.appendChild(tdSku); tr.appendChild(tdEan);
+            tr.appendChild(tdSnap); tr.appendChild(tdRes); tr.appendChild(tdCounted); tr.appendChild(tdDiff); tr.appendChild(tdActions);
+            return tr;
+        }
+
+        function processAdd() {
+            const q = (addQuery && addQuery.value || '').trim();
+            if (!q) { if (addQuery) addQuery.focus(); return; }
+            let cnt = parseInt((addCount && addCount.value) || '1', 10);
+            if (isNaN(cnt) || cnt < 1) cnt = 1;
+            const fd = new FormData();
+            fd.append('sessionId', sessionId);
+            fd.append('query', q);
+            fd.append('count', cnt);
+            post(addUrl, fd).then(res => {
+                if (res && res.success) {
+                    const tbody = root.querySelector('.cr-table-session tbody');
+                    const emptyRow = tbody && tbody.querySelector('.cr-empty-row');
+                    if (emptyRow) emptyRow.remove();
+                    let row = root.querySelector('.cr-table-session tr[data-item="' + res.itemId + '"]');
+                    if (!row && tbody) {
+                        row = buildSessionRow(res);
+                        tbody.insertBefore(row, tbody.firstChild);
+                    }
+                    if (row) {
+                        patchRow(row, String(res.countedStock));
+                        row.style.transition = 'background-color 0.4s ease';
+                        const prev = row.style.backgroundColor;
+                        row.style.backgroundColor = '#a3e3b4';
+                        setTimeout(() => { row.style.backgroundColor = prev; }, 400);
+                    }
+                    flashAdd(msgAddAdded.replace('{0}', res.productName || q), false);
+                    if (addQuery) addQuery.value = '';
+                    if (addCount) addCount.value = '1';
+                    if (addQuery) addQuery.focus();
+                } else if (res && res.duplicate) {
+                    flashAdd(msgDuplicate.replace('{0}', q), true);
+                    playErrorBeep();
+                } else {
+                    flashAdd(msgAddNotFound.replace('{0}', q) + ((res && res.error) ? ' (' + res.error + ')' : ''), true);
+                }
+            }).catch(err => flashAdd((err && err.message) || String(err), true));
+        }
+
+        if (addBtn) addBtn.addEventListener('click', processAdd);
+        if (addQuery) {
+            addQuery.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); processAdd(); }
+            });
+        }
+
+        root.addEventListener('click', function (e) {
+            const ok = e.target.closest('.cr-btn-ok');
+            if (ok && root.contains(ok)) {
+                const row = ok.closest('tr');
+                const itemId = parseInt(ok.dataset.item, 10);
+                const fd = new FormData();
+                fd.append('itemId', itemId);
+                post(okUrl, fd).then(res => {
+                    if (res && res.success) {
+                        patchRow(row, row.dataset.snapshot || '0');
+                    } else {
+                        alert((res && res.error) || 'failed');
+                    }
+                }).catch(err => alert(err.message || err));
+                return;
+            }
+
+            const save = e.target.closest('.cr-btn-save-count');
+            if (save && root.contains(save)) {
+                const row = save.closest('tr');
+                const itemId = parseInt(save.dataset.item, 10);
+                const input = row.querySelector('.cr-count-input');
+                const raw = (input?.value || '').trim();
+                if (raw === '' || isNaN(parseInt(raw, 10)) || parseInt(raw, 10) < 0) {
+                    input?.focus();
+                    return;
+                }
+                const count = parseInt(raw, 10);
+                const fd = new FormData();
+                fd.append('itemId', itemId);
+                fd.append('count', count);
+                post(setUrl, fd).then(res => {
+                    if (res && res.success) {
+                        patchRow(row, String(res.count));
+                        if (input) input.value = '';
+                    } else {
+                        alert((res && res.error) || 'failed');
+                    }
+                }).catch(err => alert(err.message || err));
+            }
+        });
+          } catch (err) {
+            alert('Inventura JS chyba: ' + (err && err.message ? err.message : err));
+          }
+        }
+
+        // nopCommerce relocates inline scripts (JS bundling on); run init only once the DOM is ready
+        // so the session root element is guaranteed to exist — this is how the original CatalogReview
+        // inline scripts were written too.
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    })();
+</script>
+
+@*-- Column sorting for this session's table. Kept in a SEPARATE inline script with asp-location="None"
+    so it is emitted verbatim and not mangled by the footer-bundle JS minifier (which broke the click
+    wiring when this lived inside the main session script). Scoped to this session's root by id so
+    multiple session tabs stay independent. Reordering preserves each row's display state, so the
+    search/status filter stays applied without re-running it. --*@
+<script asp-location="None">
+    (function () {
+        var sessionId = @Model.SessionId;
+        function cellText(r, i) { var c = r.cells[i]; if (!c) return ''; return (c.textContent || '').split('⇅').join('').split('▲').join('').split('▼').join('').trim(); }
+        function asNum(v) { if (v === '' || v === '—') return null; var n = parseFloat(v); return isFinite(n) ? n : null; }
+        function doSort(table, ths, state, index, th) {
+            var tbody = table.tBodies[0];
+            if (!tbody) return;
+            var rows = Array.prototype.slice.call(tbody.rows).filter(function (r) { return !r.classList.contains('cr-empty-row'); });
+            if (!rows.length) return;
+            if (state.index === index) { state.dir = -state.dir; } else { state.index = index; state.dir = 1; }
+            var dir = state.dir, numeric = true;
+            for (var k = 0; k < rows.length; k++) { var t = cellText(rows[k], index); if (t !== '' && asNum(t) === null) { numeric = false; break; } }
+            rows.sort(function (a, b) {
+                var ta = cellText(a, index), tb = cellText(b, index), cmp;
+                if (numeric) { var na = asNum(ta), nb = asNum(tb); cmp = (na === null ? -Infinity : na) - (nb === null ? -Infinity : nb); }
+                else { cmp = ta.localeCompare(tb, undefined, { numeric: true, sensitivity: 'base' }); }
+                return cmp * dir;
+            });
+            for (var j = 0; j < rows.length; j++) { tbody.appendChild(rows[j]); }
+            for (var h = 0; h < ths.length; h++) { var s = ths[h].querySelector('.cr-sort-ind'); if (s) s.textContent = '⇅'; }
+            var ind = th.querySelector('.cr-sort-ind');
+            if (ind) ind.textContent = dir > 0 ? '▲' : '▼';
+        }
+        function init() {
+            var rootEl = document.getElementById('cr-session-root-' + sessionId);
+            if (!rootEl) return;
+            var table = rootEl.querySelector('.cr-table-session');
+            if (!table || !table.tHead || !table.tHead.rows.length) return;
+            var headRow = table.tHead.rows[0];
+            var ths = Array.prototype.slice.call(headRow.cells);
+            var state = { index: -1, dir: 1 };
+            for (var i = 0; i < ths.length; i++) {
+                var th = ths[i];
+                if (th.hasAttribute('data-nosort')) continue;
+                th.classList.add('cr-sortable-th');
+                if (!th.querySelector('.cr-sort-ind')) {
+                    var sp = document.createElement('span');
+                    sp.className = 'cr-sort-ind';
+                    sp.style.marginLeft = '4px';
+                    sp.textContent = '⇅';
+                    th.appendChild(sp);
+                }
+            }
+            headRow.addEventListener('click', function (e) {
+                var th = (e.target && e.target.closest) ? e.target.closest('th') : null;
+                if (!th || th.hasAttribute('data-nosort')) return;
+                var index = ths.indexOf(th);
+                if (index < 0) return;
+                try { doSort(table, ths, state, index, th); }
+                catch (err) { if (window.console && console.error) console.error('session sort error', err); }
+            });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+    })();
+</script>

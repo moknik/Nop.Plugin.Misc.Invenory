@@ -1,0 +1,11 @@
+{
+  "Group": "Misc",
+  "FriendlyName": "Inventory check",
+  "SystemName": "Misc.Moknik.Inventory",
+  "Version": "1.0.0",
+  "SupportedVersions": [ "4.90" ],
+  "Author": "Tomáš Blažek",
+  "DisplayOrder": 1,
+  "FileName": "Nop.Plugin.Misc.Inventory.dll",
+  "Description": "Stock-taking inventory — a warehouse stock list plus inventory sessions (snapshot, barcode scanning and per-product counting), a completed-inventories history and a one-shot stock correction with stock-history movements. Supports selecting the warehouse, including a virtual 'no warehouse' mode for products that track stock directly."
+}

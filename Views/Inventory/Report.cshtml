@@ -1,0 +1,151 @@
+@model InventorySessionModel
+
+@{
+    Layout = null;
+
+    // Mismatches = counted, but counted != snapshot (includes products added on the shelf — snapshot 0).
+    // Not counted = never confirmed by the picker. Both are what the finish report exists to surface.
+    var diffRows = Model.Rows
+        .Where(r => r.IsConfirmed && r.CountedStock != r.SnapshotStock)
+        .OrderBy(r => r.ManufacturerName)
+        .ThenBy(r => r.ProductName)
+        .ToList();
+    var pendingRows = Model.Rows
+        .Where(r => !r.IsConfirmed)
+        .OrderBy(r => r.ManufacturerName)
+        .ThenBy(r => r.ProductName)
+        .ToList();
+
+    // Money value of the discrepancy: Σ |counted − snapshot| × current price.
+    var diffValue = diffRows.Sum(r => Math.Abs((r.CountedStock ?? 0) - r.SnapshotStock) * r.Price);
+}
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>@T("Plugins.Misc.Moknik.Inventory.Report.Title") — @Model.StartedOnUtc.ToString("yyyy-MM-dd HH:mm")</title>
+    <style>
+        body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; color: #222; margin: 20px; }
+        h1 { font-size: 16pt; margin: 0 0 4px; }
+        h2 { font-size: 12pt; margin: 22px 0 6px; }
+        .meta { color: #666; font-size: 9pt; margin-bottom: 18px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #999; padding: 4px 6px; vertical-align: top; }
+        th { background: #eee; text-align: left; }
+        .text-right { text-align: right; }
+        .empty { padding: 8px 0; color: #777; }
+        .neg { color: #b00; }
+        .pos { color: #060; }
+        .notes-box { border: 1px solid #999; padding: 8px; min-height: 40px; white-space: pre-wrap; }
+        .sign { margin-top: 48px; display: flex; justify-content: space-between; gap: 40px; }
+        .sign .col { flex: 1 1 0; }
+        .sign .ink { min-height: 40px; padding: 0 4px 2px; font-size: 11pt; text-align: center; display: flex; align-items: flex-end; justify-content: center; }
+        .sign .line { border-top: 1px solid #333; padding-top: 4px; font-size: 9pt; color: #444; text-align: center; }
+        @@media print {
+            .no-print { display: none; }
+            body { margin: 8mm; }
+            tr { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="text-align: right; margin-bottom: 12px;">
+        <button onclick="window.print()">@T("Plugins.Misc.Moknik.Inventory.Action.Print")</button>
+    </div>
+
+    <h1>@T("Plugins.Misc.Moknik.Inventory.Report.Title")</h1>
+    <div class="meta">
+        @T("Plugins.Misc.Moknik.Inventory.Filter.Warehouse"): @(string.IsNullOrEmpty(Model.WarehouseName) ? T("Plugins.Misc.Moknik.Inventory.Warehouse.None").Text : Model.WarehouseName)
+        · @T("Plugins.Misc.Moknik.Inventory.StartedAt"): @Model.StartedOnUtc.ToString("yyyy-MM-dd HH:mm")
+        · @T("Plugins.Misc.Moknik.Inventory.Report.GeneratedAt"): @DateTime.Now.ToString("yyyy-MM-dd HH:mm")
+    </div>
+
+    <h2>@T("Plugins.Misc.Moknik.Inventory.Report.DiffHeading") (@diffRows.Count) — @T("Plugins.Misc.Moknik.Inventory.Report.DiffValue"): @diffValue.ToString("0.00")</h2>
+    @if (!diffRows.Any())
+    {
+        <div class="empty">@T("Plugins.Misc.Moknik.Inventory.Report.NoDiff")</div>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Column.Manufacturer")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Column.Product")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Column.Sku")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Column.Ean")</th>
+                    <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.SnapshotStock")</th>
+                    <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.CountedStock")</th>
+                    <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.Report.Difference")</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in diffRows)
+                {
+                    var counted = row.CountedStock ?? 0;
+                    var diff = counted - row.SnapshotStock;
+                    <tr>
+                        <td>@row.ManufacturerName</td>
+                        <td>@row.ProductName</td>
+                        <td>@row.Sku</td>
+                        <td>@row.Ean</td>
+                        <td class="text-right">@row.SnapshotStock</td>
+                        <td class="text-right"><strong>@counted</strong></td>
+                        <td class="text-right @(diff < 0 ? "neg" : "pos")">@(diff > 0 ? "+" : "")@diff</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <h2>@T("Plugins.Misc.Moknik.Inventory.Report.PendingHeading") (@pendingRows.Count)</h2>
+    @if (!pendingRows.Any())
+    {
+        <div class="empty">@T("Plugins.Misc.Moknik.Inventory.Report.NoPending")</div>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Column.Manufacturer")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Column.Product")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Column.Sku")</th>
+                    <th>@T("Plugins.Misc.Moknik.Inventory.Column.Ean")</th>
+                    <th class="text-right">@T("Plugins.Misc.Moknik.Inventory.SnapshotStock")</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in pendingRows)
+                {
+                    <tr>
+                        <td>@row.ManufacturerName</td>
+                        <td>@row.ProductName</td>
+                        <td>@row.Sku</td>
+                        <td>@row.Ean</td>
+                        <td class="text-right">@row.SnapshotStock</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+
+    <h2>@T("Plugins.Misc.Moknik.Inventory.Notes")</h2>
+    <div class="notes-box">@Model.Notes</div>
+
+    <div class="sign">
+        <div class="col">
+            <div class="ink">@Model.CountedBy</div>
+            <div class="line">@T("Plugins.Misc.Moknik.Inventory.Report.SignedBy")</div>
+        </div>
+        <div class="col">
+            <div class="ink"></div>
+            <div class="line">@T("Plugins.Misc.Moknik.Inventory.Report.Signature")</div>
+        </div>
+    </div>
+
+    <script>
+        window.addEventListener('load', function () { window.print(); });
+    </script>
+</body>
+</html>

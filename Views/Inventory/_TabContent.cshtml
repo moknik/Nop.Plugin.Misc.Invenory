@@ -1,0 +1,229 @@
+@model InventoryPageModel
+@using Microsoft.AspNetCore.Mvc.Rendering
+@using Nop.Web.Framework.Models.DataTables
+
+@{
+    var s = Model.InventorySearch;
+    var atSessionCap = Model.ActiveSessions.Count >= InventoryDefaults.MaxActiveSessions;
+}
+
+<style>
+    /* Match the grid's sort icons to the custom session table: ⇅ neutral, ▲ asc, ▼ desc.
+       This DataTables version renders sort indicators via span.dt-column-order (:before ▲ / :after ▼),
+       so we collapse that into a single character to mirror the session table's .cr-sort-ind. */
+    #inventory-grid thead th span.dt-column-order,
+    #inventory-grid thead td span.dt-column-order {
+        position: static !important;
+        width: auto !important;
+        height: auto !important;
+        margin-left: 4px;
+    }
+    #inventory-grid thead th span.dt-column-order:before,
+    #inventory-grid thead td span.dt-column-order:before {
+        content: none !important;
+    }
+    #inventory-grid thead th span.dt-column-order:after,
+    #inventory-grid thead td span.dt-column-order:after {
+        position: static !important;
+        display: inline !important;
+        top: auto !important;
+        bottom: auto !important;
+        left: auto !important;
+        line-height: normal !important;
+        content: '⇅' !important;
+        opacity: 0.55 !important;
+        font-size: 0.8em !important;
+    }
+    #inventory-grid thead th.dt-ordering-asc span.dt-column-order:after,
+    #inventory-grid thead td.dt-ordering-asc span.dt-column-order:after {
+        content: '▲' !important;
+        opacity: 0.8 !important;
+    }
+    #inventory-grid thead th.dt-ordering-desc span.dt-column-order:after,
+    #inventory-grid thead td.dt-ordering-desc span.dt-column-order:after {
+        content: '▼' !important;
+        opacity: 0.8 !important;
+    }
+</style>
+
+@*-- Filter panel (plain inputs, read by the grid via FilterParameter ids). Not a <form> so Enter
+    can't accidentally start an inventory. The Start form below syncs these values on submit. --*@
+<div id="inv-filters" class="form-inline mb-3" style="gap: 0.5rem; flex-wrap: wrap;">
+    <div class="form-group mr-2">
+        <label class="mr-2 mb-0">@T("Plugins.Misc.Moknik.Inventory.Filter.Warehouse"):</label>
+        <select id="InvWarehouseId" name="InvWarehouseId" class="form-control form-control-sm" style="min-width: 160px;">
+            @foreach (var w in s.AvailableWarehouses)
+            {
+                <option value="@w.Value" selected="@w.Selected">@w.Text</option>
+            }
+        </select>
+    </div>
+    <div class="form-group mr-2">
+        <label class="mr-2 mb-0">@T("Plugins.Misc.Moknik.Inventory.Filter.Manufacturer"):</label>
+        <select id="InvManufacturerId" name="InvManufacturerId" class="form-control form-control-sm" style="min-width: 150px;">
+            @foreach (var m in s.AvailableManufacturers)
+            {
+                <option value="@m.Value">@m.Text</option>
+            }
+        </select>
+    </div>
+    <div class="form-group mr-2">
+        <label class="mr-2 mb-0">@T("Plugins.Misc.Moknik.Inventory.Filter.Vendor"):</label>
+        <select id="InvVendorId" name="InvVendorId" class="form-control form-control-sm" style="min-width: 150px;">
+            @foreach (var v in s.AvailableVendors)
+            {
+                <option value="@v.Value">@v.Text</option>
+            }
+        </select>
+    </div>
+    <div class="form-group mr-2">
+        <label class="mr-2 mb-0">@T("Plugins.Misc.Moknik.Inventory.Filter.Category"):</label>
+        <select id="InvCategoryId" name="InvCategoryId" class="form-control form-control-sm" style="min-width: 150px;">
+            @foreach (var c in s.AvailableCategories)
+            {
+                <option value="@c.Value">@c.Text</option>
+            }
+        </select>
+    </div>
+    <div class="form-group mr-2">
+        <label class="mr-2 mb-0">@T("Plugins.Misc.Moknik.Inventory.Filter.Price"):</label>
+        <input type="number" step="0.01" id="InvPriceFrom" name="InvPriceFrom" placeholder="@T("Plugins.Misc.Moknik.Inventory.Filter.From")" class="form-control form-control-sm" style="width: 90px;" />
+        <span class="mx-1">–</span>
+        <input type="number" step="0.01" id="InvPriceTo" name="InvPriceTo" placeholder="@T("Plugins.Misc.Moknik.Inventory.Filter.To")" class="form-control form-control-sm" style="width: 90px;" />
+    </div>
+    <div class="form-group mr-2">
+        <label class="mr-2 mb-0">@T("Plugins.Misc.Moknik.Inventory.Filter.Stock"):</label>
+        <input type="number" id="InvStockFrom" name="InvStockFrom" placeholder="@T("Plugins.Misc.Moknik.Inventory.Filter.From")" class="form-control form-control-sm" style="width: 75px;" />
+        <span class="mx-1">–</span>
+        <input type="number" id="InvStockTo" name="InvStockTo" placeholder="@T("Plugins.Misc.Moknik.Inventory.Filter.To")" class="form-control form-control-sm" style="width: 75px;" />
+    </div>
+    <div class="form-group mr-2">
+        <div class="form-check">
+            <input type="checkbox" id="InvOnlyReserved" name="InvOnlyReserved" value="true" class="form-check-input" />
+            <label class="form-check-label" for="InvOnlyReserved">@T("Plugins.Misc.Moknik.Inventory.Filter.OnlyReserved")</label>
+        </div>
+    </div>
+    <div class="form-group mr-2">
+        <label class="mr-2 mb-0">@T("Plugins.Misc.Moknik.Inventory.Filter.Sample"):</label>
+        <input type="number" min="1" id="InvSampleSize" name="InvSampleSize" placeholder="N" class="form-control form-control-sm" style="width: 75px;" title="@T("Plugins.Misc.Moknik.Inventory.Filter.SampleHint")" />
+    </div>
+    <button type="button" id="inv-search-btn" class="btn btn-sm btn-primary">
+        <i class="fas fa-search"></i> @T("Plugins.Misc.Moknik.Inventory.Filter.Apply")
+    </button>
+    <button type="button" id="inv-reset-btn" class="btn btn-sm btn-default">@T("Plugins.Misc.Moknik.Inventory.Filter.Reset")</button>
+</div>
+
+@*-- Start-inventory: snapshots whatever the filter currently shows. Hidden fields are synced from the
+    filter inputs above on submit (JS below). --*@
+<div class="d-flex justify-content-end align-items-center mb-2" style="gap: 0.5rem; flex-wrap: wrap;">
+    @if (atSessionCap)
+    {
+        <span class="badge badge-warning" style="font-size: 0.85rem;">
+            @string.Format(T("Plugins.Misc.Moknik.Inventory.SessionCapHint").Text, InventoryDefaults.MaxActiveSessions)
+        </span>
+    }
+    else
+    {
+        <form id="inv-start-form" method="post" action="@Url.Action("Start", "Inventory")">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="InvWarehouseId" />
+            <input type="hidden" name="InvManufacturerId" />
+            <input type="hidden" name="InvVendorId" />
+            <input type="hidden" name="InvCategoryId" />
+            <input type="hidden" name="InvPriceFrom" />
+            <input type="hidden" name="InvPriceTo" />
+            <input type="hidden" name="InvStockFrom" />
+            <input type="hidden" name="InvStockTo" />
+            <input type="hidden" name="InvOnlyReserved" />
+            <input type="hidden" name="InvSampleSize" />
+            <button type="submit" class="btn btn-sm btn-success">
+                <i class="fas fa-play"></i> @T("Plugins.Misc.Moknik.Inventory.StartButton")
+            </button>
+        </form>
+    }
+</div>
+
+<div class="cr-tab-scroll">
+    @await Html.PartialAsync("Table", new DataTablesModel
+    {
+        Name = "inventory-grid",
+        UrlRead = new DataUrl("InventoryList", "Inventory", null),
+        SearchButtonId = "inv-search-btn",
+        Length = s.PageSize,
+        LengthMenu = s.AvailablePageSizes,
+        Ordering = true,
+        Filters = new List<FilterParameter>
+        {
+            new FilterParameter(nameof(InventorySearchModel.InvWarehouseId)),
+            new FilterParameter(nameof(InventorySearchModel.InvManufacturerId)),
+            new FilterParameter(nameof(InventorySearchModel.InvVendorId)),
+            new FilterParameter(nameof(InventorySearchModel.InvCategoryId)),
+            new FilterParameter(nameof(InventorySearchModel.InvPriceFrom)),
+            new FilterParameter(nameof(InventorySearchModel.InvPriceTo)),
+            new FilterParameter(nameof(InventorySearchModel.InvStockFrom)),
+            new FilterParameter(nameof(InventorySearchModel.InvStockTo)),
+            new FilterParameter(nameof(InventorySearchModel.InvOnlyReserved), typeof(bool)),
+            new FilterParameter(nameof(InventorySearchModel.InvSampleSize))
+        },
+        ColumnCollection = new List<ColumnProperty>
+        {
+            new(nameof(InventoryItemModel.ProductId)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.ProductId").Text, Width = "60", ClassName = "text-right" },
+            new(nameof(InventoryItemModel.ManufacturerName)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Manufacturer").Text },
+            new(nameof(InventoryItemModel.VendorName)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Vendor").Text },
+            new(nameof(InventoryItemModel.ProductName)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Product").Text },
+            new(nameof(InventoryItemModel.VariantInfo)) { Title = T("Plugins.Misc.Moknik.Inventory.Variant").Text, Width = "90" },
+            new(nameof(InventoryItemModel.Sku)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Sku").Text },
+            new(nameof(InventoryItemModel.Ean)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Ean").Text },
+            new(nameof(InventoryItemModel.Price)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Price").Text, Width = "80", ClassName = "text-right" },
+            new(nameof(InventoryItemModel.StockQuantity)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Stock").Text, Width = "70", ClassName = "text-right" },
+            new(nameof(InventoryItemModel.ReservedQuantity)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Reserved").Text, Width = "70", ClassName = "text-right" },
+            new(nameof(InventoryItemModel.Categories)) { Title = T("Plugins.Misc.Moknik.Inventory.Column.Categories").Text },
+            new(nameof(InventoryItemModel.ProductEditUrl)) { Title = T("Plugins.Misc.Moknik.Inventory.Action.OpenProduct").Text, Width = "70", ClassName = "text-center", Render = new RenderCustom("renderInvOpen"), Encode = false }
+        }
+    })
+</div>
+
+@*-- asp-location="None": emitted verbatim past the footer-bundle minifier. Wires Reset + Start sync +
+    the grid's Open-product button renderer. --*@
+<script asp-location="None">
+    (function () {
+        function init() {
+            var ids = ['InvWarehouseId', 'InvManufacturerId', 'InvVendorId', 'InvCategoryId',
+                'InvPriceFrom', 'InvPriceTo', 'InvStockFrom', 'InvStockTo', 'InvOnlyReserved', 'InvSampleSize'];
+
+            var resetBtn = document.getElementById('inv-reset-btn');
+            if (resetBtn) {
+                resetBtn.addEventListener('click', function () {
+                    ids.forEach(function (id) {
+                        var el = document.getElementById(id);
+                        if (!el) return;
+                        if (el.type === 'checkbox') el.checked = false;
+                        else el.value = (el.tagName === 'SELECT') ? '0' : '';
+                    });
+                    var sb = document.getElementById('inv-search-btn');
+                    if (sb) sb.click();
+                });
+            }
+
+            // Sync the visible filter values into the Start form's hidden fields just before it submits.
+            var startForm = document.getElementById('inv-start-form');
+            if (startForm) {
+                startForm.addEventListener('submit', function () {
+                    ids.forEach(function (id) {
+                        var el = document.getElementById(id);
+                        var hidden = startForm.querySelector('input[type="hidden"][name="' + id + '"]');
+                        if (!el || !hidden) return;
+                        hidden.value = (el.type === 'checkbox') ? (el.checked ? 'true' : 'false') : (el.value || '');
+                    });
+                });
+            }
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+    })();
+
+    // DataTables custom renderer: an "open product" button built from the row's edit URL.
+    function renderInvOpen(data, type, row) {
+        if (!data) return '';
+        return '<a class="btn btn-xs btn-default" target="_blank" href="' + data + '"><i class="fas fa-external-link-alt"></i></a>';
+    }
+</script>

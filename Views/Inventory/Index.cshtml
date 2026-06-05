@@ -1,0 +1,121 @@
+@model InventoryPageModel
+
+@{
+    Layout = "_AdminLayout";
+    ViewBag.PageTitle = T("Plugins.Misc.Moknik.Inventory.Tab.Inventory").Text;
+    NopHtml.SetActiveMenuItemSystemName(InventoryDefaults.MenuSystemName);
+
+    var sessions = Model.ActiveSessions;
+    var hasSession = sessions.Any();
+    var completedSessions = Model.CompletedSessions;
+
+    // Default to the newest session tab when sessions are running (the picker's working area), UNLESS
+    // the inventory filter was just applied (then keep the inventory list visible).
+    var hasInvFilter = Context.Request.Query.ContainsKey("InvManufacturerId")
+                       || Context.Request.Query.ContainsKey("InvCategoryId")
+                       || Context.Request.Query.ContainsKey("InvWarehouseId");
+
+    // After finishing/applying stock we redirect with ?completed=1 to land on the history tab.
+    var completedActive = Context.Request.Query.ContainsKey("completed") && completedSessions.Any();
+    var sessionActive = hasSession && !hasInvFilter && !completedActive;
+    var inventoryActive = !sessionActive && !completedActive;
+}
+
+<style>
+    .cr-tab-scroll {
+        max-height: calc(100vh - 320px);
+        overflow-y: auto;
+        padding-right: 6px;
+    }
+    .cr-table { margin-bottom: 0; }
+    .cr-table th { white-space: nowrap; }
+    .cr-sortable-th { cursor: pointer; user-select: none; }
+    .cr-sortable-th:hover { background-color: #e9ecef; }
+    .cr-sort-ind { font-size: 0.8em; opacity: 0.7; }
+    .cr-row-match td { background-color: #d4edda !important; }
+    .cr-row-diff td { background-color: #f8d7da !important; }
+    /* Difference column: red "-N" when stock is missing, green "+N" when surplus. */
+    .cr-diff-neg { color: #b00; font-weight: 600; }
+    .cr-diff-pos { color: #060; font-weight: 600; }
+    .cr-status-btn.active { font-weight: 600; }
+    /* EAN shared by more than one product — scanning is blocked, so flag it amber (over match/diff). */
+    .cr-row-match.cr-ean-duplicate td,
+    .cr-row-diff.cr-ean-duplicate td,
+    .cr-ean-duplicate td { background-color: #fff3cd !important; }
+    .cr-ean-duplicate td:nth-child(4) { box-shadow: inset 3px 0 0 #e0a800; }
+    .cr-ean-dup-badge {
+        display: inline-block; margin-left: 4px; padding: 0 5px;
+        font-size: 0.7rem; font-weight: 600; line-height: 1.4;
+        color: #856404; background-color: #ffe69c; border-radius: 3px; white-space: nowrap;
+    }
+</style>
+
+<div class="content-header clearfix">
+    <h1 class="float-left">@T("Plugins.Misc.Moknik.Inventory.Tab.Inventory")</h1>
+    <div class="float-right">
+        <a href="@Url.Action("Index", "Inventory")" class="btn btn-default">
+            <i class="fas fa-sync"></i>
+            @T("Plugins.Misc.Moknik.Inventory.Action.Refresh")
+        </a>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <div class="form-horizontal">
+            <div class="cards-group">
+                <div class="card card-default">
+                    <div class="card-body">
+
+                        <ul class="nav nav-tabs" id="cr-tabs" role="tablist">
+                            <li class="nav-item">
+                                <a class="nav-link @(inventoryActive ? "active" : "")" id="cr-tab-inventory" data-toggle="tab" href="#cr-pane-inventory" role="tab">
+                                    @T("Plugins.Misc.Moknik.Inventory.Tab.Selection")
+                                    <span class="badge badge-info ml-1">@Model.Inventory.Count</span>
+                                </a>
+                            </li>
+                            @for (var i = 0; i < sessions.Count; i++)
+                            {
+                                var session = sessions[i];
+                                // Newest session is the default active one (first in the list).
+                                var isActiveTab = sessionActive && i == 0;
+                                var sessionTabLabel = string.Format(T("Plugins.Misc.Moknik.Inventory.SessionTabTitle").Text,
+                                    session.StartedOnUtc.ToString("yyyy-MM-dd HH:mm"));
+                                <li class="nav-item">
+                                    <a class="nav-link @(isActiveTab ? "active" : "")" id="cr-tab-session-@session.SessionId" data-toggle="tab" href="#cr-pane-session-@session.SessionId" role="tab">
+                                        @sessionTabLabel
+                                        <span class="badge badge-success ml-1">@session.Rows.Count(r => r.IsConfirmed) / @session.Rows.Count</span>
+                                    </a>
+                                </li>
+                            }
+                            <li class="nav-item">
+                                <a class="nav-link @(completedActive ? "active" : "")" id="cr-tab-completed" data-toggle="tab" href="#cr-pane-completed" role="tab">
+                                    @T("Plugins.Misc.Moknik.Inventory.Tab.Completed")
+                                    <span class="badge badge-secondary ml-1">@completedSessions.Count</span>
+                                </a>
+                            </li>
+                        </ul>
+
+                        <div class="tab-content pt-3">
+                            <div class="tab-pane fade @(inventoryActive ? "show active" : "")" id="cr-pane-inventory" role="tabpanel">
+                                @await Html.PartialAsync("~/Plugins/Misc.Inventory/Views/Inventory/_TabContent.cshtml", Model)
+                            </div>
+                            @for (var i = 0; i < sessions.Count; i++)
+                            {
+                                var session = sessions[i];
+                                var isActiveTab = sessionActive && i == 0;
+                                <div class="tab-pane fade @(isActiveTab ? "show active" : "")" id="cr-pane-session-@session.SessionId" role="tabpanel">
+                                    @await Html.PartialAsync("~/Plugins/Misc.Inventory/Views/Inventory/_SessionTabContent.cshtml", session)
+                                </div>
+                            }
+                            <div class="tab-pane fade @(completedActive ? "show active" : "")" id="cr-pane-completed" role="tabpanel">
+                                @await Html.PartialAsync("~/Plugins/Misc.Inventory/Views/Inventory/_CompletedTabContent.cshtml", Model)
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
